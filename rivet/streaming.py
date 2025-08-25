@@ -2,7 +2,7 @@
 
 import re
 import asyncio
-from typing import AsyncIterator, List, Dict, Any, Optional, Tuple
+from typing import AsyncIterator, List, Dict, Any, Optional, Tuple, Union
 from .tools import ToolRegistry
 from .callbacks import CallbackManager, CallbackEvent
 from .exceptions import StreamingError
@@ -160,42 +160,66 @@ class StreamingHandler:
         """Check if text contains any tool calls."""
         return bool(self._tool_call_pattern.search(text))
     
-    async def execute_tool_calls(self, text: str, context: Optional[Dict[str, Any]] = None) -> str:
-        """Execute all tool calls in text and return modified text with results."""
-        tool_calls = self._extract_tool_calls(text)
-        result_text = text
+    async def execute_tool_calls(
+        self,
+        response: Any,
+        context: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """
+        Execute all tool calls from a model response and replace them with their results.
+
+        Args:
+            response: Model response object containing `tools` and `text`.
+            context: Optional context to pass to callbacks.
+
+        Returns:
+            str: The response text with tool calls replaced by their results.
+
+        Raises:
+            ToolExecutionError: If tool execution or replacement fails.
+        """
+        if not hasattr(response, "tools") or not hasattr(response, "text"):
+            raise ValueError("Response must have `tools` and `text` attributes")
+
+        result_text: str = response.text
+        tool_calls: List[Any] = getattr(response, "tools", [])
         
-        for tool_name, args in tool_calls:
+        if not tool_calls:
+            return result_text
+
+        for tool_call in tool_calls:
+            tool_name: str = getattr(tool_call, "name", "")
+            args: Union[str, Dict[str, Any], None] = getattr(response.output, "arguments", None)
+
+            if not tool_name:
+                continue
+
             try:
-                await self.callbacks.trigger(CallbackEvent.TOOL_CALL, {
-                    "tool_name": tool_name,
-                    "args": args,
-                    "context": context
-                })
-                
+                # Trigger callback before execution
+                await self.callbacks.trigger(
+                    CallbackEvent.TOOL_CALL,
+                    {
+                        "tool_name": tool_name,
+                        "args": args,
+                        "context": context or {},
+                    },
+                )
+
+                # Parse and call tool
                 if args:
                     parsed_args = self._parse_tool_args(args)
                     result = await self.tools.acall(tool_name, **parsed_args)
                 else:
                     result = await self.tools.acall(tool_name)
-                
-                # Replace tool call with result
-                if args:
-                    old_call = f"TOOL_CALL: {tool_name}({args})"
-                else:
-                    old_call = f"TOOL_CALL: {tool_name}"
-                
-                new_result = f"TOOL_RESULT: {result}"
-                result_text = result_text.replace(old_call, new_result, 1)
-                
+
+                replacement = f"TOOL_RESULT: {result}"
+
             except Exception as e:
-                # Replace with error message
-                if args:
-                    old_call = f"TOOL_CALL: {tool_name}({args})"
-                else:
-                    old_call = f"TOOL_CALL: {tool_name}"
-                
-                error_result = f"TOOL_ERROR: {str(e)}"
-                result_text = result_text.replace(old_call, error_result, 1)
-        
+                replacement = f"TOOL_ERROR: {str(e)}"
+
+            # Replace in text
+            call_repr = self._format_tool_call(tool_name, args)
+            if call_repr in result_text:
+                result_text = result_text.replace(call_repr, replacement, 1)
+
         return result_text

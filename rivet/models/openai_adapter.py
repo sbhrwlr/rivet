@@ -3,6 +3,8 @@
 import os
 import asyncio
 from typing import List, Optional, AsyncIterator
+
+from rivet.tools import ToolRegistry
 from .base import ModelAdapter
 import openai
 
@@ -57,7 +59,7 @@ class OpenAIAdapter(ModelAdapter):
         except Exception as e:
             return f"Error generating response: {str(e)}"
     
-    async def agenerate(self, prompt: str, available_tools: Optional[List[str]] = None) -> str:
+    async def agenerate(self, prompt: str, available_tools: Optional[List[str]] = None, tool_registry: Optional[ToolRegistry] = None) -> str:
         """Generate response using OpenAI API asynchronously."""
         if not self.async_client:
             try:
@@ -68,26 +70,27 @@ class OpenAIAdapter(ModelAdapter):
                 
         try:
             messages = [{"role": "user", "content": prompt}]
+            tools = [f.__schema__ for f in tool_registry.registry.values()]
+            # if available_tools:
+            #     tool_info = f"\nAvailable tools: {', '.join(available_tools)}"
+            #     tool_info += "\nTo use a tool, respond with: TOOL_CALL: <tool_name>"
+            #     messages[0]["content"] += tool_info
             
-            if available_tools:
-                tool_info = f"\nAvailable tools: {', '.join(available_tools)}"
-                tool_info += "\nTo use a tool, respond with: TOOL_CALL: <tool_name>"
-                messages[0]["content"] += tool_info
-                
-            response = await self.async_client.chat.completions.create(
+            
+            response = await self.async_client.responses.create(
                 model=self.model,
-                messages=messages,
-                max_tokens=500
+                input=messages,
+                tools=tools
             )
             
             # Store token usage information for potential tracking
-            self._last_usage = {
-                'input_tokens': response.usage.prompt_tokens if response.usage else 0,
-                'output_tokens': response.usage.completion_tokens if response.usage else 0,
-                'total_tokens': response.usage.total_tokens if response.usage else 0
-            }
+            # self._last_usage = {
+            #     'input_tokens': response.usage.prompt_tokens if response.usage else 0,
+            #     'output_tokens': response.usage.completion_tokens if response.usage else 0,
+            #     'total_tokens': response.usage.total_tokens if response.usage else 0
+            # }
             
-            return response.choices[0].message.content.strip()
+            return response
             
         except Exception as e:
             return f"Error generating response: {str(e)}"

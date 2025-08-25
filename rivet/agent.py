@@ -136,9 +136,9 @@ class Agent:
         parts.append(f"User: {message}")
         return "\n".join(parts)
         
-    def _has_tool_calls(self, response: str) -> bool:
+    def _has_tool_calls(self, response) -> bool:
         """Check if response contains tool calls."""
-        return "TOOL_CALL:" in response
+        return any(item.type == "function_call" for item in response.output)
         
     def _execute_tools(self, response: str) -> str:
         """Execute any tool calls in the response."""
@@ -215,7 +215,7 @@ class Agent:
             })
             
             # Get model response
-            response = await self.model.agenerate(prompt, available_tools=self.tools.list())
+            response = await self.model.agenerate(prompt, tool_registry=self.tools)
             
             # Handle tool calls if needed
             if self._has_tool_calls(response):

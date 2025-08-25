@@ -4,6 +4,8 @@ import asyncio
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any, AsyncIterator
 
+from rivet.tools import ToolRegistry
+
 
 class ModelAdapter(ABC):
     """Base class for all model adapters."""
@@ -18,7 +20,7 @@ class ModelAdapter(ABC):
         """Configure the model with parameters."""
         pass
     
-    async def agenerate(self, prompt: str, available_tools: Optional[List[str]] = None) -> str:
+    async def agenerate(self, prompt: str, available_tools: Optional[List[str]] = None, tool_registry: Optional[ToolRegistry] = None) -> str:
         """Async generation - default implementation wraps sync method."""
         return await asyncio.to_thread(self.generate, prompt, available_tools)
     
